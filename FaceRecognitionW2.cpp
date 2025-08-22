@@ -8,7 +8,9 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <map>
 #include <opencv2/core/types_c.h>
+#include <unistd.h> 
 
 using namespace cv;
 using namespace cv::face;
@@ -21,7 +23,51 @@ std::vector<Mat> images;        // Training images
 std::vector<int> labels;        // Labels for training images
 std::vector<std::string> names; // Names corresponding to labels
 
-
+// Function to initialize video capture with fallback options
+VideoCapture initializeCapture() {
+    VideoCapture capture;
+    
+    // For Raspberry Pi, we need to use the named pipe approach
+    cout << "Setting up Raspberry Pi camera with named pipe..." << endl;
+    
+    // First, try to create the named pipe if it doesn't exist
+    system("mkfifo /tmp/vidpipe 2>/dev/null || true");
+    
+    // Start rpicam-vid in the background if not already running
+    system("pkill rpicam-vid 2>/dev/null || true"); // Kill any existing instances
+    system("rpicam-vid -t 0 --width 640 --height 480 --framerate 30 --output /tmp/vidpipe &");
+    
+    // Wait a moment for the pipe to be ready
+    sleep(2);
+    
+    // Try to open the pipe with OpenCV
+    cout << "Attempting to open video pipe: /tmp/vidpipe" << endl;
+    
+    // Try opening as a video file (pipe)
+    capture.open("/tmp/vidpipe", CAP_FFMPEG);
+    
+    if (capture.isOpened()) {
+        cout << "Successfully opened Raspberry Pi camera via named pipe" << endl;
+        return capture;
+    }
+    
+    cout << "Named pipe failed, trying standard camera access..." << endl;
+    
+    // Fallback: try standard camera indices
+    for (int i = 0; i < 3; i++) {
+        cout << "Trying camera index: " << i << endl;
+        capture.open(i);
+        
+        if (capture.isOpened()) {
+            cout << "Successfully opened camera index: " << i << endl;
+            return capture;
+        }
+    }
+    
+    cerr << "Error: Could not open any video source" << endl;
+    cerr << "Make sure rpicam-vid is available and camera is connected" << endl;
+    return capture;
+}
 
 // Function to detect and draw faces
 void detectAndDraw(Mat& img, CascadeClassifier& cascade,
@@ -52,7 +98,7 @@ void detectAndDraw(Mat& img, CascadeClassifier& cascade,
 
         // Recognition - predict who this face belongs to
         string name = "Unknown";
-        if (doRecognize && !model->empty()) {
+        if (doRecognize && !model.empty() && !model->empty()) {
             // Extract face ROI
             Mat faceROI = smallImg(r);
 
@@ -107,9 +153,8 @@ void detectAndDraw(Mat& img, CascadeClassifier& cascade,
     imshow("Face Recognition", img);
 }
 
-// Function to collect face samples for training
 void collectFaceSamples(CascadeClassifier& cascade, int label, const string& name) {
-    VideoCapture capture(0);
+    VideoCapture capture = initializeCapture();
     if (!capture.isOpened()) {
         cerr << "Error opening video capture\n";
         return;
@@ -120,15 +165,15 @@ void collectFaceSamples(CascadeClassifier& cascade, int label, const string& nam
     fs::create_directories(folderPath);
 
     int sampleCount = 0;
-    const int MAX_SAMPLES = 20; // Collect 20 samples per person
+    const int MAX_SAMPLES = 20;
 
-    cout << "Collecting face samples for " << name << ". Press 's' to save a sample, 'q' to quit.\n";
+    cout << "Collecting face samples for " << name << ". Press 's' to save a sample, 'q' to quit (or wait for samples to auto-save).\n";
 
     while (sampleCount < MAX_SAMPLES) {
         capture >> frame;
         if (frame.empty()) {
             cerr << "Error: Blank frame\n";
-            break;
+            continue;
         }
 
         Mat gray;
@@ -138,17 +183,7 @@ void collectFaceSamples(CascadeClassifier& cascade, int label, const string& nam
         vector<Rect> faces;
         cascade.detectMultiScale(gray, faces, 1.1, 3, 0, Size(100, 100));
 
-        Mat frameClone = frame.clone();
-
-        for (const auto& r : faces) {
-            rectangle(frameClone, r, Scalar(0, 255, 0), 2);
-        }
-
-        imshow("Collecting Faces", frameClone);
-
-        char c = (char)waitKey(10);
-        if (c == 's' && !faces.empty()) {
-            // Save the largest face (assuming it's the user's face)
+        if (!faces.empty()) {
             Rect largestFace = faces[0];
             for (const auto& r : faces) {
                 if (r.area() > largestFace.area()) {
@@ -157,7 +192,6 @@ void collectFaceSamples(CascadeClassifier& cascade, int label, const string& nam
             }
 
             Mat faceROI = gray(largestFace);
-            // Resize to a common size for training
             resize(faceROI, faceROI, Size(100, 100));
 
             string filename = folderPath + "/sample_" + to_string(sampleCount) + ".jpg";
@@ -165,13 +199,25 @@ void collectFaceSamples(CascadeClassifier& cascade, int label, const string& nam
             cout << "Saved " << filename << endl;
 
             sampleCount++;
+            waitKey(500); // wait between frames
         }
-        else if (c == 'q' || c == 27) {
+
+        // Show current frame with face detection
+        Mat displayFrame = frame.clone();
+        vector<Rect> displayFaces;
+        cascade.detectMultiScale(gray, displayFaces, 1.1, 3, 0, Size(100, 100));
+        for (const auto& r : displayFaces) {
+            rectangle(displayFrame, r, Scalar(0, 255, 0), 2);
+        }
+        imshow("Collecting Samples", displayFrame);
+
+        char c = (char)waitKey(10);
+        if (c == 'q' || c == 27) {
             break;
         }
     }
 
-    destroyWindow("Collecting Faces");
+    destroyWindow("Collecting Samples");
     cout << "Collected " << sampleCount << " samples for " << name << endl;
 }
 
@@ -202,6 +248,11 @@ bool loadTrainingData() {
             names[lbl] = name;
         }
         labelFile.close();
+        
+        // Update label counter to avoid conflicts
+        if (!names.empty()) {
+            label = names.size();
+        }
     }
 
     // Iterate through faces directory
@@ -212,7 +263,10 @@ bool loadTrainingData() {
             // Assign a label if this person doesn't have one yet
             if (nameToLabel.find(name) == nameToLabel.end()) {
                 nameToLabel[name] = label;
-                names.push_back(name);
+                if (names.size() <= label) {
+                    names.resize(label + 1);
+                }
+                names[label] = name;
                 label++;
             }
 
@@ -233,11 +287,13 @@ bool loadTrainingData() {
         }
     }
 
-    // Save labels to file
-    ofstream outLabelFile("faces/Me/labels.txt");
+    // Save labels to file (FIXED: was saving to wrong path)
+    ofstream outLabelFile("faces/labels.txt");
     if (outLabelFile.is_open()) {
         for (size_t i = 0; i < names.size(); i++) {
-            outLabelFile << names[i] << " " << i << endl;
+            if (!names[i].empty()) {
+                outLabelFile << names[i] << " " << i << endl;
+            }
         }
         outLabelFile.close();
     }
@@ -284,18 +340,47 @@ bool loadFaceRecognizer() {
 int main(int argc, const char** argv) {
     cout << "Face Recognition System" << endl;
 
-    // Load cascades
+    // Load cascades - try different possible paths
     CascadeClassifier cascade, nestedCascade;
     double scale = 1;
 
-    if (!cascade.load("C:/Users/Vlad/Desktop/Projects/C++/vcpkg/vcpkg/buildtrees/opencv4/src/4.11.0-46ecfbc8ae.clean/data/haarcascades/haarcascade_frontalface_alt.xml")) {
-        cerr << "ERROR: Could not load frontal face\n";
+    vector<string> faceCascadePaths = {
+        "/usr/share/opencv4/haarcascades/haarcascade_frontalface_alt.xml",
+        "/usr/local/share/opencv4/haarcascades/haarcascade_frontalface_alt.xml",
+        "haarcascade_frontalface_alt.xml"
+    };
+
+    vector<string> eyeCascadePaths = {
+        "/usr/share/opencv4/haarcascades/haarcascade_eye_tree_eyeglasses.xml",
+        "/usr/local/share/opencv4/haarcascades/haarcascade_eye_tree_eyeglasses.xml",
+        "haarcascade_eye_tree_eyeglasses.xml"
+    };
+
+    bool faceLoaded = false, eyeLoaded = false;
+
+    for (const string& path : faceCascadePaths) {
+        if (cascade.load(path)) {
+            cout << "Loaded face cascade from: " << path << endl;
+            faceLoaded = true;
+            break;
+        }
+    }
+
+    for (const string& path : eyeCascadePaths) {
+        if (nestedCascade.load(path)) {
+            cout << "Loaded eye cascade from: " << path << endl;
+            eyeLoaded = true;
+            break;
+        }
+    }
+
+    if (!faceLoaded) {
+        cerr << "ERROR: Could not load frontal face cascade from any path\n";
         return -1;
     }
 
-    if (!nestedCascade.load("C:/Users/Vlad/Desktop/Projects/C++/vcpkg/vcpkg/buildtrees/opencv4/src/4.11.0-46ecfbc8ae.clean/data/haarcascades/haarcascade_eye_tree_eyeglasses.xml")) {
-        cerr << "ERROR: Could not load eye cascade\n";
-        return -1;
+    if (!eyeLoaded) {
+        cerr << "WARNING: Could not load eye cascade - eye detection disabled\n";
     }
 
     // Create faces directory if it doesn't exist
@@ -342,12 +427,14 @@ int main(int argc, const char** argv) {
         }
         case 3: {
             // Make sure we have a trained model
-            if (model->empty() && !loadFaceRecognizer()) {
-                cout << "No trained model available. Train the recognizer first.\n";
-                break;
+            if (model.empty() || model->empty()) {
+                if (!loadFaceRecognizer()) {
+                    cout << "No trained model available. Train the recognizer first.\n";
+                    break;
+                }
             }
 
-            VideoCapture capture(0);
+            VideoCapture capture = initializeCapture();
             if (!capture.isOpened()) {
                 cerr << "Error opening video capture\n";
                 break;
