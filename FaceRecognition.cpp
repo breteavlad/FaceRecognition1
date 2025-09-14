@@ -21,7 +21,7 @@ using namespace cv::face;
 using namespace std;
 namespace fs = std::filesystem;
 
-// Global variables
+
 Ptr<LBPHFaceRecognizer> model; // Face recognizer model
 std::vector<Mat> images;        // Training images
 std::vector<int> labels;        // Labels for training images
@@ -60,8 +60,6 @@ void sendStudentName(const std::string& studentName) {
             if (errno == EPIPE) {
                 std::cerr << "No reader on pipe\n"<<std::flush;
             } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // This is normal with O_NONBLOCK when no reader is present
-                // You can choose to ignore this or log it
                 std::cerr << "INFO: No reader currently available on pipe\n"<<std::flush;
 
             } else {
