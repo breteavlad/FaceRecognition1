@@ -44,11 +44,11 @@ python TTS.py
 
 3️⃣ Configure TCP Server & Client
 
-📂 Move TCPserver → inside the TTS folder
+- Move TCPserver → inside the TTS folder
 
-💻 Move TCPclient → to the administrator’s laptop
+- Move TCPclient → to the administrator’s laptop
 
-🛠️ The TCP client allows the administrator to update the database via a GUI.
+- The TCP client allows the administrator to update the database via a GUI.
 
 4️⃣ Hardware Setup
 
