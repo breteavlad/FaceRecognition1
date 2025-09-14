@@ -51,3 +51,7 @@ python TTS.py
 🎤 Connect a microphone
 
 📦 Both should be plugged into the Raspberry Pi
+
+Additional setups:
+- CAD design for the microphone and the raspberry pi
+- wiring for
