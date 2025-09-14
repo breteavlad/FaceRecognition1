@@ -5,6 +5,7 @@ Follow these steps to set up the environment, TTS system, and networking compone
 ---
 
 ## 1️⃣ Install **FaceRecognizer**
+
 1. Clone the repository:
    
    git clone <repo_url>
@@ -21,7 +22,9 @@ Build with verbose output (to debug errors):
 
 
 make VERBOSE=1
+
 2️⃣ Set Up TTS Speaker
+
 Create a virtual environment:
 
 
@@ -38,7 +41,9 @@ Run the TTS script:
 
 
 python TTS.py
+
 3️⃣ Configure TCP Server & Client
+
 📂 Move TCPserver → inside the TTS folder
 
 💻 Move TCPclient → to the administrator’s laptop
@@ -46,6 +51,7 @@ python TTS.py
 🛠️ The TCP client allows the administrator to update the database via a GUI.
 
 4️⃣ Hardware Setup
+
 🔊 Connect a speaker
 
 🎤 Connect a microphone
