@@ -60,4 +60,4 @@ python TTS.py
 
 Additional setups:
 - CAD design for the microphone and the raspberry pi
-- wiring for
+- wiring for speaker and/or microphone (I used INMP441 and raspbery pi speaker)
