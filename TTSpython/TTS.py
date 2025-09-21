@@ -139,6 +139,9 @@ fsg = jsgf.build_fsg(rule, decoder.get_logmath(), 7.5)
 
 decoder.add_fsg("questions", fsg)
 decoder.set_search("questions")
+conn=sqlite3.connect("students_db.db")
+updateDic=UpdateDic("ro.dic","students_db.db")
+updateDic.addPhoneticTranslation(conn)
 
 
 
